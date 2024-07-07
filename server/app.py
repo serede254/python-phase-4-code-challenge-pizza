@@ -23,52 +23,67 @@ def index():
 
 class RestaurantsResource(Resource):
     def get(self):
-        restaurants = Restaurant.query.all()
-        return jsonify([restaurant.to_dict("id", "name", "address") for restaurant in restaurants])
-
+        response = [restaurant.to_dict(only=("id", "name", "address")) for restaurant in Restaurant.query.all()]
+        return make_response(jsonify(response), 200)
+    
 class RestaurantResource(Resource):
     def get(self, id):
-        restaurant = Restaurant.query.get(id)
+        restaurant = Restaurant.query.filter_by(id=id).first()
         if restaurant:
-            return jsonify(restaurant.to_dict("id", "name", "address", "restaurant_pizzas"))
+            response = restaurant.to_dict()
+            return make_response(jsonify(response), 200)
         else:
-            return jsonify({"error": "Restaurant not found"}), 404
+            return make_response(jsonify({"error": "Restaurant not found"}), 404)
 
     def delete(self, id):
-        restaurant = Restaurant.query.get(id)
+        restaurant = Restaurant.query.filter_by(id=id).first()
         if restaurant:
             db.session.delete(restaurant)
             db.session.commit()
-            return make_response("", 204)
+            response = make_response(jsonify({"message": "Restaurant deleted"}), 204)
         else:
-            return jsonify({"error": "Restaurant not found"}), 404
+            response = make_response(jsonify({"error": "Restaurant not found"}), 404)
+            
+        return response
 
 class PizzasResource(Resource):
     def get(self):
-        pizzas = Pizza.query.all()
-        return jsonify([pizza.to_dict("id", "name", "ingredients") for pizza in pizzas])
+        response = [pizza.to_dict(only=("id", "name", "ingredients")) for pizza in Pizza.query.all()]
+        return make_response(jsonify(response), 200)
 
 class RestaurantPizzasResource(Resource):
     def post(self):
         data = request.get_json()
-        try:
-            price = data["price"]
-            pizza_id = data["pizza_id"]
-            restaurant_id = data["restaurant_id"]
 
-            # Validate and create RestaurantPizza
-            restaurant_pizza = RestaurantPizza(price=price, pizza_id=pizza_id, restaurant_id=restaurant_id)
-            db.session.add(restaurant_pizza)
+        try:
+            restaurant_id = data['restaurant_id']
+            pizza_id = data['pizza_id']
+            price = data['price']
+
+            if price < 1 or price > 30:
+                return make_response(jsonify({"errors": ["validation errors"]}), 400)
+
+            # Create a new RestaurantPizza object 
+            new_restaurant_pizza = RestaurantPizza(
+                price=price,
+                pizza_id=pizza_id,
+                restaurant_id=restaurant_id
+            )
+
+            db.session.add(new_restaurant_pizza)
             db.session.commit()
 
-            return jsonify(restaurant_pizza.to_dict(
-                "id", "price", "pizza_id", "restaurant_id",
-                restaurant=restaurant_pizza.restaurant.to_dict("id", "name", "address"),
-                pizza=restaurant_pizza.pizza.to_dict("id", "name", "ingredients")
-            )), 201
+            response = new_restaurant_pizza.to_dict()
+            return make_response(jsonify(response), 201)
+
+        # Handle errors
+        except KeyError as e:
+            return make_response(jsonify({"errors": [f"Missing key: {str(e)}"]}), 400)
         except Exception as e:
             db.session.rollback()
-            return jsonify({"errors": [str(e)]}), 400
+            return make_response(jsonify({"errors": [str(e)]}), 400)
+        finally:
+            db.session.close()
 
 api.add_resource(RestaurantsResource, "/restaurants")
 api.add_resource(RestaurantResource, "/restaurants/<int:id>")
